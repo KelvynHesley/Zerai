@@ -1,390 +1,642 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
-  FlatList,
-  Image,
-  ActivityIndicator,
   StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
   Alert,
-  Modal,
-  ScrollView,
+  StatusBar,
+  Image,
+  Animated,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import api from "../services/api";
+import { COLORS, GRADIENTS, SHADOWS } from "../utils/theme";
+import GamingButton from "../components/GamingButton";
+
+// Componente de Skeleton Loading
+const SkeletonCard = () => {
+  const [pulseAnim] = useState(new Animated.Value(0));
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
+
+  const opacity = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.7],
+  });
+
+  return (
+    <Animated.View style={[styles.skeletonCard, { opacity }]}>
+      <View style={styles.skeletonImage} />
+      <View style={styles.skeletonContent}>
+        <View style={styles.skeletonTitle} />
+        <View style={styles.skeletonSubtitle} />
+        <View style={styles.skeletonBadge} />
+      </View>
+    </Animated.View>
+  );
+};
+
+// Componente de Card de Jogo na Busca
+const SearchGameCard = ({ game, onAdd, isAdding }) => {
+  const platforms = game.platforms || "N/A";
+
+  const rating = game.rating || 0;
+
+  return (
+    <View style={styles.gameCard}>
+      <View style={styles.gameImageContainer}>
+        {game.backgroundImage ? (
+          <Image
+            source={{ uri: game.backgroundImage }}
+            style={styles.gameImage}
+          />
+        ) : (
+          <LinearGradient
+            colors={GRADIENTS.dark}
+            style={styles.placeholderImage}
+          >
+            <Ionicons
+              name="game-controller-outline"
+              size={40}
+              color={COLORS.textMuted}
+            />
+          </LinearGradient>
+        )}
+
+        {/* Rating badge */}
+        {rating > 0 && (
+          <View style={styles.ratingBadge}>
+            <Ionicons name="star" size={12} color={COLORS.warning} />
+            <Text style={styles.ratingText}>{rating.toFixed(1)}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.gameInfo}>
+        <Text style={styles.gameTitle} numberOfLines={2}>
+          {game.gameTitle || game.name}
+        </Text>
+        <Text style={styles.gamePlatforms} numberOfLines={1}>
+          {platforms}
+        </Text>
+
+        {/* Tags/Genres - removido porque não está vindo do backend */}
+        {game.releaseDate && (
+          <View style={styles.tagsContainer}>
+            <View style={styles.tag}>
+              <Text style={styles.tagText}>📅 {game.releaseDate}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Botão de adicionar */}
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => onAdd(game)}
+          disabled={isAdding}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={isAdding ? ["#555", "#444"] : GRADIENTS.primary}
+            style={styles.addButtonGradient}
+          >
+            {isAdding ? (
+              <ActivityIndicator size="small" color={COLORS.textPrimary} />
+            ) : (
+              <>
+                <Ionicons
+                  name="add-circle-outline"
+                  size={20}
+                  color={COLORS.textPrimary}
+                />
+                <Text style={styles.addButtonText}>Adicionar</Text>
+              </>
+            )}
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 export default function SearchScreen({ navigation }) {
-  const [searchText, setSearchText] = useState("");
-  const [results, setResults] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  // savingId controla o loadingzinho no modal enquanto salva
-  const [savingId, setSavingId] = useState(null);
+  const [addingGameId, setAddingGameId] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  const [selectedGameToAdd, setSelectedGameToAdd] = useState(null);
+  // Debounce para não fazer requisição a cada tecla
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 500); // Aguarda 500ms após parar de digitar
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (debouncedQuery.trim().length >= 3) {
+      handleSearch();
+    } else if (debouncedQuery.trim().length === 0) {
+      setSearchResults([]);
+      setHasSearched(false);
+    }
+  }, [debouncedQuery]);
 
   const handleSearch = async () => {
-    if (searchText.trim().length === 0) return;
+    if (!debouncedQuery.trim()) return;
+
     setLoading(true);
-    setResults([]);
+    setHasSearched(true);
     try {
-      // Usando encodeURIComponent para garantir que espaços e caracteres especiais na busca não quebrem a URL
       const response = await api.get(
-        `/search/${encodeURIComponent(searchText)}`
+        `/search/${encodeURIComponent(debouncedQuery.trim())}`
       );
-      setResults(response.data);
+
+      const validGames = (response.data || []).filter(
+        (game) => game && game.rawgId
+      );
+      setSearchResults(validGames);
     } catch (error) {
-      console.log(error);
-      Alert.alert("Erro", "Falha ao buscar jogos. Tente novamente.");
+      console.log("Erro na busca:", error);
+      Alert.alert("Erro", "Não foi possível buscar jogos.");
+      setSearchResults([]);
     } finally {
       setLoading(false);
     }
   };
-  // 1. Abre o modal de escolha de status
-  const openAddModal = (gameData) => {
-    setSelectedGameToAdd(gameData);
-  };
 
-  // 2. Fecha o modal
-  const closeAddModal = () => {
-    // Só fecha se não estiver salvando no momento
-    if (!savingId) {
-      setSelectedGameToAdd(null);
-    }
-  };
-
-  // 3. Função que REALMENTE salva o jogo (chamada pelos botões do modal)
-  const confirmAddGame = async (chosenStatus) => {
-    const gameData = selectedGameToAdd;
-    setSavingId(gameData.rawgId); // Ativa loading no modal
-
-    // Prepara o objeto final para enviar ao backend
-    // Junta os dados do jogo da RAWG com o status escolhido
-    const payload = {
-      ...gameData,
-      status: chosenStatus,
-    };
-
+  const handleAddGame = async (game) => {
+    setAddingGameId(game.rawgId);
     try {
-      await api.post("/games", payload);
-
-      // Fecha o modal antes de mostrar o alerta de sucesso
-      setSelectedGameToAdd(null);
+      await api.post("/games", {
+        rawgId: game.rawgId,
+        gameTitle: game.gameTitle,
+        platform: game.platforms, // Já vem como string
+        backgroundImage: game.backgroundImage || "",
+        status: "Backlog",
+      });
 
       Alert.alert(
-        "Sucesso!",
-        `${gameData.gameTitle} foi adicionado como "${chosenStatus}".`,
+        "🎮 Jogo Adicionado!",
+        `${game.gameTitle} foi adicionado ao seu backlog.`,
         [
+          { text: "Ok" },
           {
-            text: "Voltar para Home",
-            onPress: () => navigation.goBack(),
+            text: "Ver Backlog",
+            onPress: () => navigation.navigate("Home"),
           },
-          { text: "Buscar mais", style: "cancel" },
         ]
       );
     } catch (error) {
       console.log(error);
-      let msg = "Erro ao salvar o jogo.";
-      if (error.response && error.response.data && error.response.data.msg) {
-        msg = error.response.data.msg;
-      }
-      Alert.alert("Atenção", msg);
+      const message =
+        error.response?.data?.message || "Não foi possível adicionar o jogo.";
+      Alert.alert("Erro", message);
     } finally {
-      setSavingId(null); // Desativa o loading
+      setAddingGameId(null);
     }
   };
 
-  // ==================================================
-
-  const renderResultItem = ({ item }) => {
-    return (
-      <TouchableOpacity
-        style={styles.resultCard}
-        onPress={() => openAddModal(item)}
-      >
-        {item.backgroundImage ? (
-          <Image
-            source={{ uri: item.backgroundImage }}
-            style={styles.resultImage}
-          />
-        ) : (
-          <View style={[styles.resultImage, styles.placeholderImage]}>
-            <Text>Sem Imagem</Text>
-          </View>
-        )}
-
-        <View style={styles.resultInfo}>
-          <Text style={styles.resultTitle} numberOfLines={2}>
-            {item.gameTitle}
-          </Text>
-          <Text style={styles.resultSubtitle}>{item.platforms}</Text>
-          <Text style={styles.resultYear}>{item.releaseDate}</Text>
-        </View>
-
-        <View style={styles.addButtonAction}>
-          <Text style={styles.plusIcon}>+</Text>
-        </View>
-      </TouchableOpacity>
-    );
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setHasSearched(false);
   };
 
-  const renderAddGameModal = () => {
-    const statusOptions = [
-      { label: "📌 Backlog (Quero Jogar)", value: "Backlog", color: "#888" },
-      { label: "🔥 Jogando Agora", value: "Jogando", color: "#007bff" },
-      { label: "🏆 Já Zerei (Concluído)", value: "Zerado", color: "#28a745" },
-      {
-        label: "💤 Só adicionar (Abandonado)",
-        value: "Abandonado",
-        color: "#dc3545",
-      },
-    ];
+  const renderEmptyState = () => {
+    if (loading) return null;
 
-    const isSaving = savingId !== null;
+    if (!hasSearched) {
+      return (
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconContainer}>
+            <LinearGradient
+              colors={GRADIENTS.primary}
+              style={styles.emptyIconGradient}
+            >
+              <Ionicons name="search" size={48} color={COLORS.textPrimary} />
+            </LinearGradient>
+          </View>
+          <Text style={styles.emptyTitle}>Procure seu jogo</Text>
+          <Text style={styles.emptySubtitle}>
+            Digite o nome de um jogo para começar a busca
+          </Text>
 
-    return (
-      <Modal
-        animationType="fade" // Fade fica mais elegante aqui
-        transparent={true}
-        visible={selectedGameToAdd !== null}
-        onRequestClose={closeAddModal}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={closeAddModal}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={styles.modalContentCentered}
-          >
-            <ScrollView>
-              {selectedGameToAdd && (
-                <>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Adicionar Jogo</Text>
-                    <Text style={styles.modalSubtitle} numberOfLines={2}>
-                      {selectedGameToAdd.gameTitle}
-                    </Text>
-                  </View>
-
-                  <Text style={styles.modalSectionLabelCentered}>
-                    Em qual lista deseja salvar?
-                  </Text>
-
-                  {isSaving ? (
-                    <View style={styles.modalLoading}>
-                      <ActivityIndicator size="large" color="#6200ea" />
-                      <Text>Adicionando...</Text>
-                    </View>
-                  ) : (
-                    <>
-                      {statusOptions.map((option) => (
-                        <TouchableOpacity
-                          key={option.value}
-                          style={styles.statusButton}
-                          // Ao clicar, chama a função que confirma passando o valor do status
-                          onPress={() => confirmAddGame(option.value)}
-                        >
-                          <View
-                            style={[
-                              styles.statusIndicator,
-                              { backgroundColor: option.color },
-                            ]}
-                          />
-                          <Text style={styles.statusButtonText}>
-                            {option.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </>
-                  )}
-
+          {/* Sugestões populares */}
+          <View style={styles.suggestionsContainer}>
+            <Text style={styles.suggestionsTitle}>Populares:</Text>
+            <View style={styles.suggestionsChips}>
+              {["The Witcher 3", "GTA V", "Minecraft", "Elden Ring"].map(
+                (suggestion) => (
                   <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={closeAddModal}
-                    disabled={isSaving}
+                    key={suggestion}
+                    style={styles.suggestionChip}
+                    onPress={() => setSearchQuery(suggestion)}
                   >
-                    <Text style={styles.cancelButtonText}>Cancelar</Text>
+                    <Text style={styles.suggestionText}>{suggestion}</Text>
                   </TouchableOpacity>
-                </>
+                )
               )}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-    );
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (searchResults.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="sad-outline" size={64} color={COLORS.textMuted} />
+          <Text style={styles.emptyTitle}>Nenhum jogo encontrado</Text>
+          <Text style={styles.emptySubtitle}>Tente buscar com outro nome</Text>
+        </View>
+      );
+    }
+
+    return null;
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.searchBarContainer}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Digite o nome do jogo..."
-          value={searchText}
-          onChangeText={setSearchText}
-          onSubmitEditing={handleSearch}
-          returnKeyType="search"
-        />
-        <TouchableOpacity
-          style={styles.searchButton}
-          onPress={handleSearch}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.searchButtonText}>Buscar</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
+      {/* Header com gradiente */}
+      <LinearGradient colors={GRADIENTS.dark} style={styles.header}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Buscar Jogos</Text>
+          <View style={styles.headerPlaceholder} />
+        </View>
+
+        {/* Barra de busca */}
+        <View style={styles.searchContainer}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={20} color={COLORS.primary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Ex: The Last of Us, Zelda..."
+              placeholderTextColor={COLORS.textMuted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={clearSearch}
+                style={styles.clearButton}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={20}
+                  color={COLORS.textSecondary}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Info de resultados */}
+        {hasSearched && !loading && (
+          <Text style={styles.resultsInfo}>
+            {searchResults.length}{" "}
+            {searchResults.length === 1 ? "resultado" : "resultados"}{" "}
+            encontrados
+          </Text>
+        )}
+      </LinearGradient>
+
+      {/* Lista de resultados */}
       <FlatList
-        data={results}
-        keyExtractor={(item) => item.rawgId.toString()}
-        renderItem={renderResultItem}
-        contentContainerStyle={styles.listContent}
-        ListEmptyComponent={
-          !loading &&
-          searchText && (
-            <Text style={styles.emptyText}>Nenhum jogo encontrado.</Text>
+        data={loading ? [1, 2, 3, 4] : searchResults}
+        keyExtractor={(item, index) =>
+          loading ? `skeleton-${index}` : `game-${item.rawgId || index}`
+        }
+        renderItem={({ item }) =>
+          loading ? (
+            <SkeletonCard />
+          ) : (
+            <SearchGameCard
+              game={item}
+              onAdd={handleAddGame}
+              isAdding={addingGameId === item.rawgId}
+            />
           )
         }
+        ListEmptyComponent={renderEmptyState}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
       />
 
-      {renderAddGameModal()}
+      {/* Elementos decorativos de fundo */}
+      <View style={styles.backgroundDecor1} />
+      <View style={styles.backgroundDecor2} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // ... (Estilos existentes permanecem iguais)
-  container: { flex: 1, backgroundColor: "#f5f5f5" },
-  searchBarContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  header: {
+    paddingTop: StatusBar.currentHeight + 16,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    ...SHADOWS.medium,
+  },
+  headerTop: {
     flexDirection: "row",
-    padding: 15,
-    backgroundColor: "#fff",
-    elevation: 4,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.surface,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    letterSpacing: 1,
+  },
+  headerPlaceholder: {
+    width: 44,
+  },
+  searchContainer: {
+    marginBottom: 12,
+  },
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 56,
+    gap: 12,
+    borderWidth: 2,
+    borderColor: COLORS.card,
   },
   searchInput: {
     flex: 1,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
-    paddingHorizontal: 15,
     fontSize: 16,
-    marginRight: 10,
-    height: 50,
+    color: COLORS.textPrimary,
   },
-  searchButton: {
-    backgroundColor: "#6200ea",
-    justifyContent: "center",
-    alignItems: "center",
+  clearButton: {
+    padding: 4,
+  },
+  resultsInfo: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 8,
+  },
+  listContent: {
     paddingHorizontal: 20,
-    borderRadius: 8,
-    height: 50,
-  },
-  searchButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
-  listContent: { padding: 15 },
-  resultCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    marginBottom: 15,
-    overflow: "hidden",
-    elevation: 2,
-    alignItems: "center",
-  },
-  resultImage: { width: 80, height: 100, resizeMode: "cover" },
-  placeholderImage: {
-    backgroundColor: "#ddd",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  resultInfo: { flex: 1, padding: 12 },
-  resultTitle: { fontSize: 16, fontWeight: "bold", color: "#333" },
-  resultSubtitle: { fontSize: 13, color: "#666", marginTop: 4 },
-  resultYear: { fontSize: 12, color: "#999", marginTop: 4 },
-  addButtonAction: {
-    padding: 15,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  plusIcon: { fontSize: 24, color: "#6200ea", fontWeight: "bold" },
-  emptyText: {
-    textAlign: "center",
-    marginTop: 50,
-    fontSize: 16,
-    color: "#888",
+    paddingTop: 16,
+    paddingBottom: 20,
   },
 
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)", // Um pouco mais escuro
-    justifyContent: "center", // Centralizado na tela
-    alignItems: "center",
-    padding: 20,
+  // Game Card
+  gameCard: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: "hidden",
+    ...SHADOWS.medium,
   },
-  modalContentCentered: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 20,
+  gameImageContainer: {
+    width: 120,
+    height: 160,
+    position: "relative",
+  },
+  gameImage: {
     width: "100%",
-    maxHeight: "70%",
-    elevation: 20,
+    height: "100%",
+    resizeMode: "cover",
   },
-  modalHeader: {
+  placeholderImage: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 15,
   },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#6200ea",
-  },
-  modalSubtitle: {
-    fontSize: 16,
-    color: "#333",
-    marginTop: 5,
-    textAlign: "center",
-  },
-  modalSectionLabelCentered: {
-    fontSize: 16,
-    color: "#666",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  statusButton: {
+  ratingBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f0f0f0",
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
   },
-  statusIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 15,
+  ratingText: {
+    color: COLORS.textPrimary,
+    fontSize: 12,
+    fontWeight: "bold",
   },
-  statusButtonText: {
+  gameInfo: {
+    flex: 1,
+    padding: 12,
+    justifyContent: "space-between",
+  },
+  gameTitle: {
     fontSize: 16,
-    color: "#333",
-    fontWeight: "500",
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    marginBottom: 4,
   },
-  cancelButton: {
-    marginTop: 10,
-    padding: 15,
-    alignItems: "center",
+  gamePlatforms: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 8,
   },
-  cancelButtonText: {
-    fontSize: 16,
-    color: "#666",
+  tagsContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8,
   },
-  modalLoading: {
-    padding: 30,
+  tag: {
+    backgroundColor: COLORS.card,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  tagText: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    fontWeight: "bold",
+  },
+  addButton: {
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  addButtonGradient: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 8,
+    gap: 6,
+  },
+  addButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+
+  // Skeleton Loading
+  skeletonCard: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    marginBottom: 16,
+    overflow: "hidden",
+    height: 160,
+  },
+  skeletonImage: {
+    width: 120,
+    backgroundColor: COLORS.card,
+  },
+  skeletonContent: {
+    flex: 1,
+    padding: 12,
+    justifyContent: "space-around",
+  },
+  skeletonTitle: {
+    height: 16,
+    backgroundColor: COLORS.card,
+    borderRadius: 4,
+    width: "80%",
+  },
+  skeletonSubtitle: {
+    height: 12,
+    backgroundColor: COLORS.card,
+    borderRadius: 4,
+    width: "60%",
+  },
+  skeletonBadge: {
+    height: 24,
+    backgroundColor: COLORS.card,
+    borderRadius: 12,
+    width: "40%",
+  },
+
+  // Empty State
+  emptyContainer: {
+    alignItems: "center",
+    paddingTop: 60,
+  },
+  emptyIconContainer: {
+    marginBottom: 24,
+  },
+  emptyIconGradient: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: "center",
+    alignItems: "center",
+    ...SHADOWS.neon,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    paddingHorizontal: 40,
+    lineHeight: 20,
+  },
+  suggestionsContainer: {
+    marginTop: 40,
+    width: "100%",
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    marginBottom: 12,
+  },
+  suggestionsChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  suggestionChip: {
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.card,
+  },
+  suggestionText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+  },
+
+  // Background Decorations
+  backgroundDecor1: {
+    position: "absolute",
+    top: 200,
+    right: -100,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: COLORS.primary,
+    opacity: 0.05,
+  },
+  backgroundDecor2: {
+    position: "absolute",
+    bottom: 100,
+    left: -80,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: COLORS.secondary,
+    opacity: 0.05,
   },
 });
