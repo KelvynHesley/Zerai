@@ -18,7 +18,10 @@ app.get('/', (req, res) => res.send('API do Zeraí está rodando!'));
 
 // Definir as rotas da aplicação
 app.use('/api/auth', require('./routes/auth'));
-// Aqui adicionaremos outras rotas no futuro (ex: /api/games, /api/reviews)
+
+app.use('/api/games', require('./routes/UserGames'));
+
+app.use('/api/search', require('./routes/externalGames'));
 
 const PORT = process.env.PORT || 5000;
 
