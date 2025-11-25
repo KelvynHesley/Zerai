@@ -10,6 +10,9 @@ import {
   StatusBar,
   Modal,
   ScrollView,
+  Image,
+  Platform,
+  Dimensions,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "@react-navigation/native";
@@ -17,8 +20,10 @@ import { Ionicons } from "@expo/vector-icons";
 import api from "../services/api";
 import { storage } from "../utils/storage";
 import { COLORS, GRADIENTS, SHADOWS } from "../utils/theme";
-import GameCard from "../components/GameCard";
 import GamingButton from "../components/GamingButton";
+
+const { width: screenWidth } = Dimensions.get("window");
+const isWeb = Platform.OS === "web";
 
 export default function HomeScreen({ navigation }) {
   const [games, setGames] = useState([]);
@@ -27,6 +32,7 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [selectedGame, setSelectedGame] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Estatísticas gamificadas
   const [stats, setStats] = useState({
@@ -44,10 +50,9 @@ export default function HomeScreen({ navigation }) {
       playing: gamesList.filter((g) => g.status === "Jogando").length,
       completed: gamesList.filter((g) => g.status === "Zerado").length,
       backlog: gamesList.filter((g) => g.status === "Backlog").length,
-      // XP simples: 10 pontos por jogo zerado
       xp: gamesList.filter((g) => g.status === "Zerado").length * 10,
     };
-    stats.level = Math.floor(stats.xp / 50) + 1; // Level up a cada 50 XP
+    stats.level = Math.floor(stats.xp / 50) + 1;
     return stats;
   };
 
@@ -111,17 +116,69 @@ export default function HomeScreen({ navigation }) {
   };
 
   const confirmDelete = () => {
-    Alert.alert(
-      "Remover Jogo",
-      `Tem certeza que deseja remover "${selectedGame.gameTitle}"?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Remover",
-          style: "destructive",
-          onPress: handleDeleteGame,
-        },
-      ]
+    setSelectedGame(selectedGame);
+    setShowDeleteConfirm(true);
+  };
+
+  const renderDeleteConfirmModal = () => {
+    if (!selectedGame) return null;
+
+    return (
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showDeleteConfirm}
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            <View style={styles.deleteModalHeader}>
+              <Ionicons name="warning" size={48} color={COLORS.error} />
+              <Text style={styles.deleteModalTitle}>Remover Jogo?</Text>
+              <Text style={styles.deleteModalMessage}>
+                Tem certeza que deseja remover{"\n"}
+                <Text style={styles.deleteModalGameTitle}>
+                  "{selectedGame.gameTitle}"
+                </Text>
+                {"\n"}da sua lista?
+              </Text>
+            </View>
+
+            {actionLoading ? (
+              <View style={styles.deleteModalLoading}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={styles.loadingText}>Removendo...</Text>
+              </View>
+            ) : (
+              <View style={styles.deleteModalButtons}>
+                <TouchableOpacity
+                  style={styles.deleteModalCancelButton}
+                  onPress={() => setShowDeleteConfirm(false)}
+                >
+                  <Text style={styles.deleteModalCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.deleteModalConfirmButton}
+                  onPress={handleDeleteGame}
+                >
+                  <LinearGradient
+                    colors={[COLORS.error, "#DC2626"]}
+                    style={styles.deleteModalConfirmGradient}
+                  >
+                    <Ionicons
+                      name="trash"
+                      size={20}
+                      color={COLORS.textPrimary}
+                    />
+                    <Text style={styles.deleteModalConfirmText}>Remover</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     );
   };
 
@@ -129,11 +186,19 @@ export default function HomeScreen({ navigation }) {
     setActionLoading(true);
     try {
       await api.delete(`/games/${selectedGame._id}`);
-      closeModal();
-      fetchGames();
+
+      setShowDeleteConfirm(false);
+      setSelectedGame(null);
+
+      await fetchGames();
+
+      Alert.alert("✅ Sucesso!", "Jogo removido da sua lista!");
     } catch (error) {
-      console.log(error);
-      Alert.alert("Erro", "Não foi possível remover o jogo.");
+      const message =
+        error.response?.data?.msg ||
+        error.response?.data?.message ||
+        "Não foi possível remover o jogo.";
+      Alert.alert("Erro", message);
     } finally {
       setActionLoading(false);
     }
@@ -143,6 +208,93 @@ export default function HomeScreen({ navigation }) {
   const closeModal = () => setSelectedGame(null);
 
   const filters = ["Todos", "Backlog", "Jogando", "Zerado", "Abandonado"];
+
+  // Funções auxiliares para cards
+  const getStatusGradient = (status) => {
+    switch (status) {
+      case "Jogando":
+        return ["#3B82F6", "#2563EB"];
+      case "Zerado":
+        return ["#10B981", "#059669"];
+      case "Abandonado":
+        return ["#EF4444", "#DC2626"];
+      default:
+        return ["#64748B", "#475569"];
+    }
+  };
+
+  const getStatusEmoji = (status) => {
+    switch (status) {
+      case "Jogando":
+        return "🎮";
+      case "Zerado":
+        return "🏆";
+      case "Abandonado":
+        return "💤";
+      default:
+        return "📚";
+    }
+  };
+
+  const renderGameCard = ({ item }) => {
+    return (
+      <TouchableOpacity
+        style={styles.gameCard}
+        onPress={() => openModal(item)}
+        activeOpacity={0.9}
+      >
+        <View style={styles.gameImageContainer}>
+          {item.backgroundImage ? (
+            <Image
+              source={{ uri: item.backgroundImage }}
+              style={styles.gameImage}
+            />
+          ) : (
+            <LinearGradient
+              colors={GRADIENTS.dark}
+              style={[styles.gameImage, styles.placeholderImage]}
+            >
+              <Ionicons
+                name="game-controller-outline"
+                size={40}
+                color={COLORS.textMuted}
+              />
+            </LinearGradient>
+          )}
+
+          {/* Overlay gradient na imagem */}
+          <LinearGradient
+            colors={["transparent", "rgba(15,23,42,0.9)"]}
+            style={styles.imageOverlay}
+          />
+        </View>
+
+        <View style={styles.gameInfo}>
+          <Text style={styles.gameTitle} numberOfLines={2}>
+            {item.gameTitle}
+          </Text>
+          <Text style={styles.gamePlatform} numberOfLines={1}>
+            {item.platform}
+          </Text>
+
+          <LinearGradient
+            colors={getStatusGradient(item.status)}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.statusBadge}
+          >
+            <Text style={styles.statusEmoji}>
+              {getStatusEmoji(item.status)}
+            </Text>
+            <Text style={styles.statusText}>{item.status}</Text>
+          </LinearGradient>
+        </View>
+
+        {/* Brilho neon no canto */}
+        <View style={styles.glowCorner} />
+      </TouchableOpacity>
+    );
+  };
 
   const renderHeader = () => (
     <>
@@ -343,9 +495,7 @@ export default function HomeScreen({ navigation }) {
         <FlatList
           data={filteredGames}
           keyExtractor={(item) => item._id}
-          renderItem={({ item }) => (
-            <GameCard game={item} onPress={() => openModal(item)} />
-          )}
+          renderItem={renderGameCard}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
@@ -358,6 +508,8 @@ export default function HomeScreen({ navigation }) {
           }
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          numColumns={isWeb && screenWidth > 768 ? 2 : 1}
+          key={isWeb && screenWidth > 768 ? "two-columns" : "one-column"}
         />
       )}
 
@@ -373,6 +525,7 @@ export default function HomeScreen({ navigation }) {
       </TouchableOpacity>
 
       {renderModal()}
+      {renderDeleteConfirmModal()}
     </View>
   );
 }
@@ -509,7 +662,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   listContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: isWeb ? (screenWidth > 768 ? 40 : 20) : 20,
     paddingBottom: 100,
   },
   loadingContainer: {
@@ -599,7 +752,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   statusOptionActive: {
-    backgroundColor: COLORS.primary + "33", // 20% opacity
+    backgroundColor: COLORS.primary + "33",
     borderWidth: 2,
     borderColor: COLORS.primary,
   },
@@ -618,5 +771,159 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: COLORS.card,
     marginVertical: 20,
+  },
+
+  // ✅ ESTILOS DOS CARDS RESPONSIVOS
+  gameCard: {
+    flexDirection: isWeb ? "column" : "row",
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    marginBottom: 16,
+    marginHorizontal: isWeb && screenWidth > 768 ? 8 : 0,
+    overflow: "hidden",
+    ...SHADOWS.medium,
+    flex: isWeb && screenWidth > 768 ? 1 : undefined,
+    maxWidth: isWeb && screenWidth > 768 ? (screenWidth - 120) / 2 : undefined,
+  },
+  gameImageContainer: {
+    width: isWeb ? "100%" : 120,
+    height: isWeb ? undefined : 160,
+    aspectRatio: isWeb ? 16 / 9 : 120 / 160,
+    position: "relative",
+  },
+  gameImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  imageOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: isWeb ? "40%" : "50%",
+  },
+  placeholderImage: {
+    backgroundColor: COLORS.card,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  gameInfo: {
+    flex: 1,
+    padding: isWeb ? 16 : 12,
+    justifyContent: "space-between",
+  },
+  gameTitle: {
+    fontSize: isWeb ? 18 : 16,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    marginBottom: 4,
+  },
+  gamePlatform: {
+    fontSize: isWeb ? 14 : 12,
+    color: COLORS.textSecondary,
+    marginBottom: 8,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingVertical: isWeb ? 6 : 4,
+    paddingHorizontal: isWeb ? 12 : 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  statusEmoji: {
+    fontSize: isWeb ? 16 : 14,
+  },
+  statusText: {
+    color: COLORS.textPrimary,
+    fontSize: isWeb ? 13 : 11,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  glowCorner: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    backgroundColor: COLORS.primary,
+    opacity: 0.2,
+    borderBottomLeftRadius: 40,
+  },
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+    ...SHADOWS.neon,
+  },
+  deleteModalHeader: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  deleteModalTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  deleteModalMessage: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    lineHeight: 24,
+  },
+  deleteModalGameTitle: {
+    color: COLORS.primary,
+    fontWeight: "bold",
+  },
+  deleteModalLoading: {
+    padding: 20,
+    alignItems: "center",
+  },
+  deleteModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  deleteModalCancelButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: COLORS.card,
+    alignItems: "center",
+  },
+  deleteModalCancelText: {
+    color: COLORS.textSecondary,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  deleteModalConfirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  deleteModalConfirmGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    gap: 8,
+  },
+  deleteModalConfirmText: {
+    color: COLORS.textPrimary,
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

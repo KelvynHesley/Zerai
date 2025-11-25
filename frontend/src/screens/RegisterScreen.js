@@ -20,7 +20,7 @@ import { COLORS, GRADIENTS, SHADOWS } from "../utils/theme";
 import GamingButton from "../components/GamingButton";
 
 export default function RegisterScreen({ navigation }) {
-  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -49,7 +49,7 @@ export default function RegisterScreen({ navigation }) {
   const passwordStrength = getPasswordStrength();
 
   const validateInputs = () => {
-    if (!name || !email || !password || !confirmPassword) {
+    if (!username || !email || !password || !confirmPassword) {
       Alert.alert("Atenção", "Preencha todos os campos.");
       return false;
     }
@@ -70,16 +70,25 @@ export default function RegisterScreen({ navigation }) {
   const handleRegister = async () => {
     if (!validateInputs()) return;
 
+    const payload = {
+      username: username,
+      email,
+      password,
+    };
+
     setLoading(true);
     try {
-      const response = await api.post("/auth/register", {
-        name,
+      // Registra o usuário
+      await api.post("/auth/register", payload);
+
+      // Faz login automático para obter o token
+      const loginResponse = await api.post("/auth/login", {
         email,
         password,
       });
 
-      // Após registro bem-sucedido, faz login automático
-      await storage.setItem("userToken", response.data.token);
+      // Salva o token
+      await storage.setItem("userToken", loginResponse.data.token);
 
       Alert.alert(
         "🎮 Bem-vindo ao Zerai!",
@@ -93,10 +102,11 @@ export default function RegisterScreen({ navigation }) {
         ]
       );
     } catch (error) {
-      console.log(error);
       Alert.alert(
         "Erro no Cadastro",
-        error.response?.data?.message || "Não foi possível criar a conta."
+        error.response?.data?.message ||
+          error.response?.data?.msg ||
+          "Não foi possível criar a conta."
       );
     } finally {
       setLoading(false);
@@ -166,8 +176,8 @@ export default function RegisterScreen({ navigation }) {
                   style={styles.input}
                   placeholder="Como devemos te chamar?"
                   placeholderTextColor={COLORS.textMuted}
-                  value={name}
-                  onChangeText={setName}
+                  value={username}
+                  onChangeText={setUsername}
                   autoCapitalize="words"
                 />
               </View>

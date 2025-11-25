@@ -11,6 +11,7 @@ import {
   StatusBar,
   Image,
   Animated,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -59,7 +60,6 @@ const SkeletonCard = () => {
 // Componente de Card de Jogo na Busca
 const SearchGameCard = ({ game, onAdd, isAdding }) => {
   const platforms = game.platforms || "N/A";
-
   const rating = game.rating || 0;
 
   return (
@@ -100,7 +100,7 @@ const SearchGameCard = ({ game, onAdd, isAdding }) => {
           {platforms}
         </Text>
 
-        {/* Tags/Genres - removido porque não está vindo do backend */}
+        {/* Tags/Genres */}
         {game.releaseDate && (
           <View style={styles.tagsContainer}>
             <View style={styles.tag}>
@@ -145,6 +145,9 @@ export default function SearchScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [addingGameId, setAddingGameId] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [selectedGameToAdd, setSelectedGameToAdd] = useState(null);
+  const [selectedStatus, setSelectedStatus] = useState("Backlog");
 
   // Debounce para não fazer requisição a cada tecla
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -152,7 +155,7 @@ export default function SearchScreen({ navigation }) {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
-    }, 500); // Aguarda 500ms após parar de digitar
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [searchQuery]);
@@ -181,7 +184,6 @@ export default function SearchScreen({ navigation }) {
       );
       setSearchResults(validGames);
     } catch (error) {
-      console.log("Erro na busca:", error);
       Alert.alert("Erro", "Não foi possível buscar jogos.");
       setSearchResults([]);
     } finally {
@@ -189,20 +191,27 @@ export default function SearchScreen({ navigation }) {
     }
   };
 
-  const handleAddGame = async (game) => {
+  const confirmAddGame = async () => {
+    if (!selectedGameToAdd) return;
+
+    const game = selectedGameToAdd;
     setAddingGameId(game.rawgId);
+    setShowStatusModal(false);
+
     try {
-      await api.post("/games", {
+      const payload = {
         rawgId: game.rawgId,
         gameTitle: game.gameTitle,
-        platform: game.platforms, // Já vem como string
+        platforms: game.platforms,
         backgroundImage: game.backgroundImage || "",
-        status: "Backlog",
-      });
+        status: selectedStatus,
+      };
+
+      await api.post("/games", payload);
 
       Alert.alert(
         "🎮 Jogo Adicionado!",
-        `${game.gameTitle} foi adicionado ao seu backlog.`,
+        `${game.gameTitle} foi adicionado como "${selectedStatus}".`,
         [
           { text: "Ok" },
           {
@@ -212,13 +221,22 @@ export default function SearchScreen({ navigation }) {
         ]
       );
     } catch (error) {
-      console.log(error);
       const message =
-        error.response?.data?.message || "Não foi possível adicionar o jogo.";
+        error.response?.data?.message ||
+        error.response?.data?.msg ||
+        "Não foi possível adicionar o jogo.";
       Alert.alert("Erro", message);
     } finally {
       setAddingGameId(null);
+      setSelectedGameToAdd(null);
     }
+  };
+
+  // Cancela a adição
+  const cancelAddGame = () => {
+    setShowStatusModal(false);
+    setSelectedGameToAdd(null);
+    setSelectedStatus("Backlog");
   };
 
   const clearSearch = () => {
@@ -278,6 +296,150 @@ export default function SearchScreen({ navigation }) {
     }
 
     return null;
+  };
+
+  // Renderiza o modal de seleção de status
+  const renderStatusModal = () => {
+    if (!selectedGameToAdd) return null;
+
+    const statusOptions = [
+      { value: "Backlog", emoji: "📚", label: "Backlog", color: "#64748B" },
+      {
+        value: "Jogando",
+        emoji: "🎮",
+        label: "Jogando Agora",
+        color: "#3B82F6",
+      },
+      { value: "Zerado", emoji: "🏆", label: "Zerado", color: "#10B981" },
+      {
+        value: "Abandonado",
+        emoji: "💤",
+        label: "Abandonado",
+        color: "#EF4444",
+      },
+    ];
+
+    return (
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={showStatusModal}
+        onRequestClose={cancelAddGame}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.statusModalContent}>
+            {/* Header do Modal */}
+            <View style={styles.statusModalHeader}>
+              <View style={styles.gamePreview}>
+                {selectedGameToAdd.backgroundImage ? (
+                  <Image
+                    source={{ uri: selectedGameToAdd.backgroundImage }}
+                    style={styles.gamePreviewImage}
+                  />
+                ) : (
+                  <View style={styles.gamePreviewPlaceholder}>
+                    <Ionicons
+                      name="game-controller-outline"
+                      size={32}
+                      color={COLORS.textMuted}
+                    />
+                  </View>
+                )}
+              </View>
+              <Text style={styles.statusModalTitle} numberOfLines={2}>
+                {selectedGameToAdd.gameTitle}
+              </Text>
+              <Text style={styles.statusModalSubtitle}>
+                Escolha o status inicial:
+              </Text>
+            </View>
+
+            {/* Opções de Status */}
+            <View style={styles.statusOptionsContainer}>
+              {statusOptions.map((option) => {
+                const isSelected = selectedStatus === option.value;
+                return (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[
+                      styles.statusOptionButton,
+                      isSelected && styles.statusOptionButtonSelected,
+                    ]}
+                    onPress={() => setSelectedStatus(option.value)}
+                    activeOpacity={0.7}
+                  >
+                    {isSelected ? (
+                      <LinearGradient
+                        colors={[option.color, option.color + "DD"]}
+                        style={styles.statusOptionGradient}
+                      >
+                        <Text style={styles.statusOptionEmoji}>
+                          {option.emoji}
+                        </Text>
+                        <Text style={styles.statusOptionTextSelected}>
+                          {option.label}
+                        </Text>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={24}
+                          color={COLORS.textPrimary}
+                        />
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.statusOptionContent}>
+                        <Text style={styles.statusOptionEmoji}>
+                          {option.emoji}
+                        </Text>
+                        <Text style={styles.statusOptionText}>
+                          {option.label}
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Botões de Ação */}
+            <View style={styles.statusModalButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={cancelAddGame}
+              >
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={confirmAddGame}
+                disabled={addingGameId !== null}
+              >
+                <LinearGradient
+                  colors={GRADIENTS.primary}
+                  style={styles.confirmButtonGradient}
+                >
+                  {addingGameId ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={COLORS.textPrimary}
+                    />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="add-circle"
+                        size={20}
+                        color={COLORS.textPrimary}
+                      />
+                      <Text style={styles.confirmButtonText}>Adicionar</Text>
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
   };
 
   return (
@@ -361,6 +523,9 @@ export default function SearchScreen({ navigation }) {
       {/* Elementos decorativos de fundo */}
       <View style={styles.backgroundDecor1} />
       <View style={styles.backgroundDecor2} />
+
+      {/* Modal de seleção de status */}
+      {renderStatusModal()}
     </View>
   );
 }
@@ -638,5 +803,132 @@ const styles = StyleSheet.create({
     borderRadius: 90,
     backgroundColor: COLORS.secondary,
     opacity: 0.05,
+  },
+
+  // Modal de Status
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  statusModalContent: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+    ...SHADOWS.neon,
+  },
+  statusModalHeader: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  gamePreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 16,
+    ...SHADOWS.medium,
+  },
+  gamePreviewImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  gamePreviewPlaceholder: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: COLORS.card,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  statusModalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: COLORS.textPrimary,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  statusModalSubtitle: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+  },
+  statusOptionsContainer: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  statusOptionButton: {
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: COLORS.card,
+  },
+  statusOptionButtonSelected: {
+    borderColor: "transparent",
+  },
+  statusOptionGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 12,
+  },
+  statusOptionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    gap: 12,
+    backgroundColor: COLORS.card,
+  },
+  statusOptionEmoji: {
+    fontSize: 24,
+  },
+  statusOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    fontWeight: "bold",
+  },
+  statusOptionTextSelected: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.textPrimary,
+    fontWeight: "bold",
+  },
+  statusModalButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: COLORS.card,
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  confirmButton: {
+    flex: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  confirmButtonGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    gap: 8,
+  },
+  confirmButtonText: {
+    color: COLORS.textPrimary,
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });
