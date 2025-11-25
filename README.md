@@ -7,7 +7,7 @@
 O Zerai ajuda gamers a:
 - Organizar seus jogos em diferentes status (Backlog, Jogando, Zerado, Abandonado)
 - Buscar informações detalhadas sobre jogos através da API RAWG
-- Avaliar jogos com sistema de rating (1-5 estrelas)
+- Avaliar jogos com sistema de rating (1-5 estrelas) (Ainda não Disponível)
 - Manter um histórico personalizado de sua jornada gaming
 - Acessar sua biblioteca de qualquer dispositivo
 
