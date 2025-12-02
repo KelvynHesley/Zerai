@@ -191,6 +191,11 @@ export default function SearchScreen({ navigation }) {
     }
   };
 
+  const openStatusModal = (game) => {
+    setSelectedGameToAdd(game);
+    setShowStatusModal(true);
+  };
+
   const confirmAddGame = async () => {
     if (!selectedGameToAdd) return;
 
@@ -510,7 +515,7 @@ export default function SearchScreen({ navigation }) {
           ) : (
             <SearchGameCard
               game={item}
-              onAdd={handleAddGame}
+              onAdd={openStatusModal}
               isAdding={addingGameId === item.rawgId}
             />
           )
