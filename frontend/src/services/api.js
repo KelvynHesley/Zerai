@@ -2,7 +2,7 @@ import axios from "axios";
 import { storage } from "../utils/storage";
 import * as SecureStore from "expo-secure-store";
 
-const BASE_URL = "http://192.168.0.10:5000/api";
+const BASE_URL = "https://shaggy-anica-zerai-e688171d.koyeb.app/api";
 
 const api = axios.create({
   baseURL: BASE_URL,

@@ -494,7 +494,10 @@ export default function HomeScreen({ navigation }) {
       ) : (
         <FlatList
           data={filteredGames}
-          keyExtractor={(item) => item._id}
+          // ✅ CORREÇÃO 1: Usando ID + Index para garantir chave única
+          keyExtractor={(item, index) =>
+            item._id ? `${item._id}-${index}` : index.toString()
+          }
           renderItem={renderGameCard}
           ListHeaderComponent={renderHeader}
           ListEmptyComponent={
@@ -513,7 +516,6 @@ export default function HomeScreen({ navigation }) {
         />
       )}
 
-      {/* FAB com efeito neon */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => navigation.navigate("Search")}

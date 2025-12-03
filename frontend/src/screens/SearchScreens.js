@@ -507,7 +507,9 @@ export default function SearchScreen({ navigation }) {
       <FlatList
         data={loading ? [1, 2, 3, 4] : searchResults}
         keyExtractor={(item, index) =>
-          loading ? `skeleton-${index}` : `game-${item.rawgId || index}`
+          loading
+            ? `skeleton-${index}`
+            : `game-${item.rawgId ? item.rawgId : "no-id"}-${index}`
         }
         renderItem={({ item }) =>
           loading ? (
